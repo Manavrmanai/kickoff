@@ -1,0 +1,104 @@
+const mongoose = require('mongoose');
+
+const playerStatisticsSchema = new mongoose.Schema({
+  player: {
+    id: { type: Number, required: true },
+    name: String,
+    firstname: String,
+    lastname: String,
+    age: Number,
+    birth: {
+      date: String,
+      place: String,
+      country: String
+    },
+    nationality: String,
+    height: String,
+    weight: String,
+    injured: Boolean,
+    photo: String
+  },
+  statistics: [
+    {
+      team: {
+        id: Number,
+        name: String,
+        logo: String
+      },
+      league: {
+        id: Number,
+        name: String,
+        country: String,
+        logo: String,
+        flag: String,
+        season: Number
+      },
+      games: {
+        appearences: Number,
+        lineups: Number,
+        minutes: Number,
+        number: Number,
+        position: String,
+        rating: String,
+        captain: Boolean
+      },
+      substitutes: {
+        in: Number,
+        out: Number,
+        bench: Number
+      },
+      shots: {
+        total: Number,
+        on: Number
+      },
+      goals: {
+        total: Number,
+        conceded: Number,
+        assists: Number,
+        saves: Number
+      },
+      passes: {
+        total: Number,
+        key: Number,
+        accuracy: Number
+      },
+      tackles: {
+        total: Number,
+        blocks: Number,
+        interceptions: Number
+      },
+      duels: {
+        total: Number,
+        won: Number
+      },
+      dribbles: {
+        attempts: Number,
+        success: Number,
+        past: Number
+      },
+      fouls: {
+        drawn: Number,
+        committed: Number
+      },
+      cards: {
+        yellow: Number,
+        yellowred: Number,
+        red: Number
+      },
+      penalty: {
+        won: Number,
+        commited: Number,
+        scored: Number,
+        missed: Number,
+        saved: Number
+      }
+    }
+  ]
+}, {
+  timestamps: true
+});
+
+// Index for player ID and season
+playerStatisticsSchema.index({ 'player.id': 1, 'statistics.league.season': 1 });
+
+module.exports = mongoose.model('PlayerStatistics', playerStatisticsSchema);
