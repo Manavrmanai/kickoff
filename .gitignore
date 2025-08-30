@@ -1,0 +1,27 @@
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+.env
+.DS_Store
+.vscode/
+coverage/
+
+# Logs
+logs
+*.log
+pids
+*.pid
+*.seed
+
+# OS files
+Thumbs.db
+desktop.ini
+
+# Optional: local database files
+data/
+
+# Optional editors
+.idea/
