@@ -7,12 +7,13 @@ const Fixture = require('../models/fixture');
 const FixtureStatistics = require('../models/fixtureStatistics');
 const FixtureEvents = require('../models/fixtureEvents');
 const FixturePlayerStats = require('../models/fixturePlayerStats');
-const dataTransformers = require('../utils/dataTransformers');
+const { transformFixtures, transformFixture, transformFixtureStats, transformFixtureEvents, transformFixturePlayerStats } = require('../utils/dataTransformers');
 
 // GET /api/fixtures?league=39&season=2023 → List fixtures by league & season
 router.get('/', async (req, res) => {
   const leagueId = req.query.league;
   const season = req.query.season || new Date().getFullYear();
+  const raw = req.query.raw === 'true';
   
   if (!leagueId) {
     return res.status(400).json({ 
@@ -29,11 +30,21 @@ router.get('/', async (req, res) => {
     await redisClient.connect();
 
     // 1. Check Redis cache first
-    const cachedData = await redisClient.get(cacheKey);
+    const cacheKey = `fixtures:league:${leagueId}:${season}`;
+    const cachedData = await redisClient.get(raw ? cacheKey + ':raw' : cacheKey);
     if (cachedData) {
       console.log('✅ Fixtures data from Redis Cache');
-      await redisClient.disconnect();
-      return res.json(JSON.parse(cachedData));
+      const data = JSON.parse(cachedData);
+      
+      // Check if cached data is valid (not empty)
+      if (!data || !data.response || data.response.length === 0) {
+        console.log('⚠️ Cached data is empty/invalid, clearing cache and fetching from API');
+        await redisClient.del(cacheKey);
+        await redisClient.del(cacheKey + ':raw');
+      } else {
+        await redisClient.disconnect();
+        return res.json(data);
+      }
     }
 
     // 2. Check MongoDB if cache miss
@@ -46,23 +57,47 @@ router.get('/', async (req, res) => {
     if (dbFixtures && dbFixtures.length > 0) {
       console.log(`✅ Found ${dbFixtures.length} fixtures in MongoDB`);
       
+      // Convert Mongoose documents to plain objects
+      const plainFixtures = dbFixtures.map(doc => doc.toObject ? doc.toObject() : doc);
+      
       // Convert MongoDB data to API format
       const dbData = {
-        response: dbFixtures
+        response: plainFixtures
       };
       
-      // Refresh cache with DB data (2 hours)
-      await redisClient.setEx(cacheKey, 7200, JSON.stringify(dbData));
       await redisClient.disconnect();
-      return res.json(dbData);
+      
+      if (raw) {
+        // Cache raw data for raw requests
+        await redisClient.connect();
+        await redisClient.setEx(cacheKey + ':raw', 7200, JSON.stringify(dbData));
+        await redisClient.disconnect();
+        return res.json(dbData);
+      } else {
+        const transformed = transformFixtures(dbData);
+        
+        // Cache the final response structure
+        const finalResponse = { response: transformed };
+        await redisClient.connect();
+        await redisClient.setEx(cacheKey, 7200, JSON.stringify(finalResponse));
+        await redisClient.disconnect();
+        
+        return res.json(finalResponse);
+      }
     }
 
     // 3. Data not found - fetch from API
     console.log(`🌐 Fetching fixtures for league ${leagueId}, season ${season} from API`);
     const apiData = await footballApi.getFixtures(leagueId, season);
 
-    // Cache the result (2 hours for fixtures)
-    await redisClient.setEx(cacheKey, 7200, JSON.stringify(apiData));
+    // Only cache if we have valid data
+    if (apiData && apiData.response && apiData.response.length > 0) {
+      // Cache the result (2 hours for fixtures)
+      await redisClient.setEx(cacheKey, 7200, JSON.stringify(apiData));
+      console.log(`✅ Cached ${apiData.response.length} fixtures to Redis`);
+    } else {
+      console.log('⚠️ No fixtures found, not caching empty result');
+    }
     
     // Save individual fixtures to MongoDB
     if (apiData && apiData.response && apiData.response.length > 0) {
@@ -84,18 +119,11 @@ router.get('/', async (req, res) => {
 
     await redisClient.disconnect();
 
-    // Add ?raw=true to get full API response
-    if (req.query.raw === 'true') {
+    if (raw) {
       return res.json(apiData);
+    } else {
+      return res.json({ response: transformFixtures(apiData.response) });
     }
-
-    // Return transformed data for frontend
-    const transformedData = {
-      ...apiData,
-      response: apiData.response?.map(fixture => dataTransformers.transformFixture(fixture)) || []
-    };
-
-    res.json(transformedData);
 
   } catch (error) {
     console.error('❌ Error fetching fixtures:', error.message);
@@ -110,8 +138,14 @@ router.get('/', async (req, res) => {
 });
 
 // GET /api/fixtures/:id → Single fixture info
-router.get('/:id', async (req, res) => {
+router.get('/:id', async (req, res, next) => {
   const fixtureId = req.params.id;
+  
+  // Only handle if ID is purely numeric (no additional path segments)
+  if (!/^\d+$/.test(fixtureId)) {
+    return next(); // Pass to next route (like /:id/stats)
+  }
+  
   const cacheKey = `fixture:${fixtureId}`;
   let redisClient;
 
@@ -143,17 +177,12 @@ router.get('/:id', async (req, res) => {
       await redisClient.setEx(cacheKey, 3600, JSON.stringify(dbData));
       await redisClient.disconnect();
       
-      // Add ?raw=true to get full API response
-      if (req.query.raw === 'true') {
+      const raw = req.query.raw === 'true';
+      if (raw) {
         return res.json(dbData);
+      } else {
+        return res.json({ response: transformFixture(dbData.response[0]) });
       }
-
-      // Return transformed data for frontend
-      const transformedData = {
-        ...dbData,
-        response: dbData.response?.map(fixture => dataTransformers.transformFixture(fixture)) || []
-      };
-      return res.json(transformedData);
     }
 
     // 3. Data not found - fetch from API
@@ -180,18 +209,12 @@ router.get('/:id', async (req, res) => {
 
     await redisClient.disconnect();
 
-    // Add ?raw=true to get full API response
-    if (req.query.raw === 'true') {
+    const raw = req.query.raw === 'true';
+    if (raw) {
       return res.json(apiData);
+    } else {
+      return res.json({ response: transformFixture(apiData.response[0]) });
     }
-
-    // Return transformed data for frontend
-    const transformedData = {
-      ...apiData,
-      response: apiData.response?.map(fixture => dataTransformers.transformFixture(fixture)) || []
-    };
-
-    res.json(transformedData);
 
   } catch (error) {
     console.error('❌ Error fetching single fixture:', error.message);
@@ -230,30 +253,42 @@ router.get('/:id/stats', async (req, res) => {
 
       // Cache the result (30 minutes for live stats)
       await redisClient.setEx(cacheKey, 1800, JSON.stringify(apiData));
-    }
-
-    // Always save to MongoDB (whether from cache or fresh API call)
-    if (apiData && apiData.response) {
-      try {
-        await FixtureStatistics.findOneAndUpdate(
-          { fixture_id: parseInt(fixtureId) },
-          { 
-            fixture_id: parseInt(fixtureId),
-            response: apiData.response,
-            apiData: apiData
-          },
-          { upsert: true, new: true }
-        );
-        console.log(`💾 Saved fixture stats for ${fixtureId} to MongoDB`);
-      } catch (saveError) {
-        console.error(`❌ Failed to save fixture stats for ${fixtureId}:`, saveError.message);
+      
+      // Save to MongoDB only when fetching fresh data from API
+      if (apiData && apiData.response) {
+        try {
+          await FixtureStatistics.findOneAndUpdate(
+            { fixture_id: parseInt(fixtureId) },
+            { 
+              fixture_id: parseInt(fixtureId),
+              response: apiData.response,
+              apiData: apiData
+            },
+            { upsert: true, new: true }
+          );
+          console.log(`💾 Saved fixture stats for ${fixtureId} to MongoDB`);
+        } catch (saveError) {
+          console.error(`❌ Failed to save fixture stats for ${fixtureId}:`, saveError.message);
+        }
       }
     }
 
     await redisClient.disconnect();
 
-    // Return raw API response (statistics are already well-structured)
-    res.json(apiData);
+    const raw = req.query.raw === 'true';
+    if (raw) {
+      return res.json(apiData);
+    } else {
+      // Check if apiData.response is an array (multiple teams) or single object
+      if (Array.isArray(apiData.response)) {
+        // Transform each team's stats
+        const transformedStats = apiData.response.map(teamStats => transformFixtureStats(teamStats));
+        return res.json({ response: transformedStats });
+      } else {
+        // Single team stats
+        return res.json({ response: transformFixtureStats(apiData.response) });
+      }
+    }
 
   } catch (error) {
     console.error('❌ Error fetching fixture stats:', error.message);
@@ -284,17 +319,36 @@ router.get('/:id/events', async (req, res) => {
     
     if (cachedData) {
       console.log('✅ Fixture events data from Redis Cache');
-      apiData = JSON.parse(cachedData);
-    } else {
-      // Fetch from API
-      console.log(`🌐 Fetching fixture events for ${fixtureId} from API`);
-      apiData = await footballApi.getFixtureEvents(fixtureId);
-
-      // Cache the result (15 minutes for live events)
-      await redisClient.setEx(cacheKey, 900, JSON.stringify(apiData));
+      const data = JSON.parse(cachedData);
+      
+      // Check if cached data is valid (not empty)
+      if (!data || !data.response || data.response.length === 0) {
+        console.log('⚠️ Cached events data is empty/invalid, clearing cache and fetching from API');
+        await redisClient.del(cacheKey);
+      } else {
+        await redisClient.disconnect();
+        const raw = req.query.raw === 'true';
+        if (raw) {
+          return res.json(data);
+        } else {
+          return res.json({ response: transformFixtureEvents(data) });
+        }
+      }
     }
 
-    // Always save to MongoDB (whether from cache or fresh API call)
+    // Fetch from API
+    console.log(`🌐 Fetching fixture events for ${fixtureId} from API`);
+    apiData = await footballApi.getFixtureEvents(fixtureId);
+
+    // Only cache if we have valid data
+    if (apiData && apiData.response && apiData.response.length > 0) {
+      await redisClient.setEx(cacheKey, 900, JSON.stringify(apiData));
+      console.log(`✅ Cached ${apiData.response.length} events to Redis`);
+    } else {
+      console.log('⚠️ No events found, not caching empty result');
+    }
+
+    // Save to MongoDB only when fetching fresh data from API
     if (apiData && apiData.response) {
       try {
         await FixtureEvents.findOneAndUpdate(
@@ -314,8 +368,12 @@ router.get('/:id/events', async (req, res) => {
 
     await redisClient.disconnect();
 
-    // Return raw API response (events are already well-structured)
-    res.json(apiData);
+    const raw = req.query.raw === 'true';
+    if (raw) {
+      return res.json(apiData);
+    } else {
+      return res.json({ response: transformFixtureEvents(apiData) });
+    }
 
   } catch (error) {
     console.error('❌ Error fetching fixture events:', error.message);
@@ -344,8 +402,27 @@ router.get('/:id/players', async (req, res) => {
     const cachedData = await redisClient.get(cacheKey);
     if (cachedData) {
       console.log('✅ Fixture players data from Redis Cache');
-      await redisClient.disconnect();
-      return res.json(JSON.parse(cachedData));
+      const data = JSON.parse(cachedData);
+      
+      // Check if cached data is valid (not empty)
+      if (!data || !data.response || data.response.length === 0) {
+        console.log('⚠️ Cached players data is empty/invalid, clearing cache');
+        await redisClient.del(cacheKey);
+      } else {
+        await redisClient.disconnect();
+        const raw = req.query.raw === 'true';
+        if (raw) {
+          return res.json(data);
+        } else {
+          // Handle array of teams (transform each team)
+          if (Array.isArray(data.response)) {
+            const transformedPlayers = data.response.map(teamData => transformFixturePlayerStats(teamData));
+            return res.json({ response: transformedPlayers });
+          } else {
+            return res.json({ response: transformFixturePlayerStats(data.response) });
+          }
+        }
+      }
     }
 
     // 2. Check MongoDB
@@ -354,15 +431,30 @@ router.get('/:id/players', async (req, res) => {
     if (dbData) {
       console.log('✅ Found fixture players in MongoDB, refreshing cache');
       
+      // Convert Mongoose document to plain object
+      const plainData = dbData.toObject ? dbData.toObject() : dbData;
+      
       // Transform DB data to API format
       const apiFormat = {
-        response: dbData.response
+        response: plainData.response
       };
       
       // Refresh cache with DB data (30 minutes for match player stats)
       await redisClient.setEx(cacheKey, 1800, JSON.stringify(apiFormat));
       await redisClient.disconnect();
-      return res.json(apiFormat);
+      
+      const raw = req.query.raw === 'true';
+      if (raw) {
+        return res.json(apiFormat);
+      } else {
+        // Handle array of teams (transform each team)
+        if (Array.isArray(apiFormat.response)) {
+          const transformedPlayers = apiFormat.response.map(teamData => transformFixturePlayerStats(teamData));
+          return res.json({ response: transformedPlayers });
+        } else {
+          return res.json({ response: transformFixturePlayerStats(apiFormat.response) });
+        }
+      }
     }
 
     // 3. Data not found - fetch from API
@@ -391,8 +483,18 @@ router.get('/:id/players', async (req, res) => {
     await redisClient.setEx(cacheKey, 1800, JSON.stringify(apiData));
     await redisClient.disconnect();
 
-    // Return raw API response (player stats are already well-structured)
-    res.json(apiData);
+    const raw = req.query.raw === 'true';
+    if (raw) {
+      return res.json(apiData);
+    } else {
+      // Handle array of teams (transform each team)
+      if (Array.isArray(apiData.response)) {
+        const transformedPlayers = apiData.response.map(teamData => transformFixturePlayerStats(teamData));
+        return res.json({ response: transformedPlayers });
+      } else {
+        return res.json({ response: transformFixturePlayerStats(apiData.response) });
+      }
+    }
 
   } catch (error) {
     console.error('❌ Error fetching fixture players:', error.message);

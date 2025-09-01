@@ -6,10 +6,12 @@ const footballApi = require('../utils/footballApi');
 const League = require('../models/league');
 const Team = require('../models/team');
 const Standing = require('../models/standing');
+const { transformLeagues, transformLeague, transformTeams, transformStandings, transformStanding, transformTeam } = require('../utils/dataTransformers');
 
 // GET /api/leagues → list all leagues
 router.get('/', async (req, res) => {
   const cacheKey = 'leagues:all';
+  const raw = req.query.raw === 'true';
   let redisClient;
 
   try {
@@ -22,7 +24,9 @@ router.get('/', async (req, res) => {
     if (cachedData) {
       console.log('✅ Leagues data from Redis Cache');
       await redisClient.disconnect();
-      return res.json(JSON.parse(cachedData));
+      const data = JSON.parse(cachedData);
+      // Cache now contains clean data, so return directly
+      return res.json(data);
     }
 
     // 2. Check MongoDB
@@ -31,15 +35,25 @@ router.get('/', async (req, res) => {
     if (dbData && dbData.length > 0) {
       console.log('✅ Found leagues in MongoDB, refreshing cache');
       
-      // Transform DB data to API format
-      const apiFormat = {
-        response: dbData
-      };
+      // MongoDB already has clean transformed data
+      const cleanLeagues = dbData.map(league => ({
+        id: league.apiId,
+        name: league.name,
+        country: league.country?.name,
+        countryCode: league.country?.code,
+        logo: league.logo,
+        flag: league.country?.flag,
+        season: league.seasons?.[0]?.year || new Date().getFullYear(),
+        type: league.type,
+        current: league.seasons?.[0]?.current
+      }));
       
-      // Refresh cache with DB data (6 hours)
-      await redisClient.setEx(cacheKey, 21600, JSON.stringify(apiFormat));
+      const cleanApiFormat = { response: cleanLeagues };
+      
+      // Cache clean data (6 hours)
+      await redisClient.setEx(cacheKey, 21600, JSON.stringify(cleanApiFormat));
       await redisClient.disconnect();
-      return res.json(apiFormat);
+      return res.json(raw ? { response: dbData } : cleanApiFormat);
     }
 
     // 3. Data not found - fetch from API
@@ -51,39 +65,43 @@ router.get('/', async (req, res) => {
       return res.status(404).json({ error: 'No leagues found' });
     }
 
-    // Save to MongoDB
-    for (const item of apiData.response) {
-      const leagueData = {
-        apiId: item.league.id,
-        name: item.league.name,
-        type: item.league.type,
-        logo: item.league.logo,
-        country: {
-          name: item.country.name,
-          code: item.country.code,
-          flag: item.country.flag
-        },
-        seasons: item.seasons.map(season => ({
-          year: season.year,
-          start: season.start,
-          end: season.end,
-          current: season.current
-        }))
-      };
+    // Transform raw API data immediately
+    const transformedLeagues = apiData.response.map(item => transformLeague(item));
 
+    // Save transformed data to MongoDB (not raw)
+    for (const transformedLeague of transformedLeagues) {
       await League.findOneAndUpdate(
-        { apiId: item.league.id },
-        leagueData,
+        { apiId: transformedLeague.id },
+        {
+          apiId: transformedLeague.id,
+          name: transformedLeague.name,
+          type: transformedLeague.type,
+          logo: transformedLeague.logo,
+          country: {
+            name: transformedLeague.country,
+            code: transformedLeague.countryCode,
+            flag: transformedLeague.flag
+          },
+          seasons: [{
+            year: transformedLeague.season,
+            start: new Date(),
+            end: new Date(),
+            current: transformedLeague.current
+          }],
+          // Keep original for debugging if needed
+          originalApiData: raw ? apiData.response.find(item => item.league.id === transformedLeague.id) : null
+        },
         { upsert: true, new: true }
       );
     }
-    console.log(`💾 Saved ${apiData.response.length} leagues to MongoDB`);
+    console.log(`💾 Saved ${transformedLeagues.length} transformed leagues to MongoDB`);
 
-    // Cache the result (6 hours)
-    await redisClient.setEx(cacheKey, 21600, JSON.stringify(apiData));
+    // Cache transformed data (not raw)
+    const cleanApiFormat = { response: transformedLeagues };
+    await redisClient.setEx(cacheKey, 21600, JSON.stringify(cleanApiFormat));
     await redisClient.disconnect();
 
-    res.json(apiData);
+    return res.json(raw ? apiData : cleanApiFormat);
 
   } catch (error) {
     console.error('❌ Error fetching leagues:', error.message);
@@ -101,6 +119,7 @@ router.get('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
   const leagueId = req.params.id;
   const cacheKey = `league:${leagueId}`;
+  const raw = req.query.raw === 'true';
   let redisClient;
 
   try {
@@ -113,7 +132,8 @@ router.get('/:id', async (req, res) => {
     if (cachedData) {
       console.log('✅ League data from Redis Cache');
       await redisClient.disconnect();
-      return res.json(JSON.parse(cachedData));
+      const data = JSON.parse(cachedData);
+      return res.json(raw ? data : { response: data.response ? transformLeague(data.response[0]) : null });
     }
 
     // 2. Check MongoDB
@@ -121,16 +141,25 @@ router.get('/:id', async (req, res) => {
     const dbData = await League.findOne({ apiId: parseInt(leagueId) });
     if (dbData) {
       console.log('✅ Found league in MongoDB, refreshing cache');
-      
-      // Transform DB data to API format
+      // Map MongoDB doc to API format expected by transformLeague
       const apiFormat = {
-        response: [dbData]
+        league: {
+          id: dbData.apiId,
+          name: dbData.name,
+          type: dbData.type,
+          logo: dbData.logo
+        },
+        country: {
+          name: dbData.country?.name,
+          code: dbData.country?.code,
+          flag: dbData.country?.flag
+        },
+        seasons: dbData.seasons
       };
-      
       // Refresh cache with DB data (2 hours)
-      await redisClient.setEx(cacheKey, 7200, JSON.stringify(apiFormat));
+      await redisClient.setEx(cacheKey, 7200, JSON.stringify({ response: [apiFormat] }));
       await redisClient.disconnect();
-      return res.json(apiFormat);
+      return res.json(raw ? { response: [apiFormat] } : { response: transformLeague(apiFormat) });
     }
 
     // 3. Data not found - fetch from API
@@ -173,7 +202,7 @@ router.get('/:id', async (req, res) => {
     await redisClient.setEx(cacheKey, 7200, JSON.stringify(apiData));
     await redisClient.disconnect();
     
-    res.json(apiData);
+    return res.json(raw ? apiData : { response: transformLeague(apiData.response[0]) });
   } catch (error) {
     console.error(`Error fetching league ${leagueId}:`, error.message);
     if (redisClient) await redisClient.disconnect();
@@ -186,6 +215,7 @@ router.get('/:id/teams', async (req, res) => {
   const leagueId = req.params.id;
   const season = req.query.season || new Date().getFullYear();
   const cacheKey = `league:${leagueId}:teams:${season}`;
+  const raw = req.query.raw === 'true';
   let redisClient;
 
   try {
@@ -198,7 +228,8 @@ router.get('/:id/teams', async (req, res) => {
     if (cachedData) {
       console.log('✅ League teams data from Redis Cache');
       await redisClient.disconnect();
-      return res.json(JSON.parse(cachedData));
+      const data = JSON.parse(cachedData);
+      return res.json(raw ? data : { response: data.response?.map(team => transformTeam(team)) || [] });
     }
 
     // Fetch from API
@@ -245,12 +276,14 @@ router.get('/:id/teams', async (req, res) => {
         venue: item.venue
       });
     }
+    
+    console.log(`💾 Saved ${apiData.response.length} teams to MongoDB`);
 
     // Cache for 2 hours
-    await redisClient.setEx(cacheKey, 7200, JSON.stringify(teams));
+    await redisClient.setEx(cacheKey, 7200, JSON.stringify(apiData));
     await redisClient.disconnect();
     
-    res.json(teams);
+    return res.json(raw ? apiData : { response: apiData.response?.map(team => transformTeam(team)) || [] });
   } catch (error) {
     console.error(`Error fetching teams for league ${leagueId}:`, error.message);
     if (redisClient) await redisClient.disconnect();
@@ -263,6 +296,7 @@ router.get('/:id/standings', async (req, res) => {
   const leagueId = req.params.id;
   const season = req.query.season || new Date().getFullYear();
   const cacheKey = `standings:${leagueId}:${season}`;
+  const raw = req.query.raw === 'true';
   let redisClient;
 
   try {
@@ -275,7 +309,8 @@ router.get('/:id/standings', async (req, res) => {
     if (cachedData) {
       console.log('✅ Standings data from Redis Cache');
       await redisClient.disconnect();
-      return res.json(JSON.parse(cachedData));
+      const data = JSON.parse(cachedData);
+      return res.json(raw ? data : { response: data.response?.[0]?.league?.standings?.[0]?.map(standing => transformStanding(standing)) || [] });
     }
 
     // Fetch from API and return raw response (same as terminal output)
@@ -288,6 +323,7 @@ router.get('/:id/standings', async (req, res) => {
     }
 
     // Save standings data to MongoDB
+    let savedCount = 0;
     for (const leagueStanding of apiData.response) {
       const leagueInfo = leagueStanding && leagueStanding.league ? leagueStanding.league : {};
       const groups = leagueInfo.standings || leagueStanding.standings || [];
@@ -332,12 +368,15 @@ router.get('/:id/standings', async (req, res) => {
               standingData,
               { upsert: true, new: true }
             );
+            savedCount++;
           } catch (dbErr) {
             console.error('Warning: Failed to save standing to DB for team', teamStanding?.team?.id, dbErr.message);
           }
         }
       }
     }
+    
+    console.log(`💾 Saved ${savedCount} standings to MongoDB`);
 
     // Cache the full API response for 30 minutes and return it unchanged
     try {
@@ -346,7 +385,7 @@ router.get('/:id/standings', async (req, res) => {
       console.error('Warning: failed to set standings cache', cacheErr && cacheErr.message);
     }
     await redisClient.disconnect();
-    return res.json(apiData);
+    return res.json(raw ? apiData : { response: apiData.response?.[0]?.league?.standings?.[0]?.map(standing => transformStanding(standing)) || [] });
   } catch (error) {
     console.error(`Error fetching standings for league ${leagueId}:`, error.message);
     if (redisClient) await redisClient.disconnect();

@@ -4,6 +4,7 @@ const router = express.Router();
 const { createClient } = require('redis');
 const footballApi = require('../utils/footballApi');
 const Standing = require('../models/standing');
+const { transformStandings } = require('../utils/dataTransformers');
 
 // GET /api/leagues/:id/standings → points table
 router.get('/:id/standings', async (req, res) => {
@@ -22,7 +23,14 @@ router.get('/:id/standings', async (req, res) => {
     if (cachedData) {
       console.log('✅ Standings data from Redis Cache');
       await redisClient.disconnect();
-      return res.json(JSON.parse(cachedData));
+      const data = JSON.parse(cachedData);
+      
+      const raw = req.query.raw === 'true';
+      if (raw) {
+        return res.json(data);
+      } else {
+        return res.json({ response: transformStandings(data.response) });
+      }
     }
 
     // Fetch from API and return the raw API response (same as terminal output)
@@ -41,7 +49,13 @@ router.get('/:id/standings', async (req, res) => {
       console.error('Warning: failed to set standings cache', cacheErr && cacheErr.message);
     }
     await redisClient.disconnect();
-    return res.json(apiData);
+    
+    const raw = req.query.raw === 'true';
+    if (raw) {
+      return res.json(apiData);
+    } else {
+      return res.json({ response: transformStandings(apiData.response) });
+    }
   } catch (error) {
     console.error(`Error fetching standings for league ${leagueId}:`, error.message);
     if (redisClient) await redisClient.disconnect();

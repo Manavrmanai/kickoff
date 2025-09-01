@@ -1,375 +1,353 @@
-// utils/dataTransformers.js
-// Data transformation utilities for frontend consumption
+// Frontend-optimized data transformers for all 17 endpoints
 
-/**
- * Transform team data for frontend
- */
-function transformTeamData(apiResponse) {
-  if (!apiResponse || !apiResponse.response || !apiResponse.response[0]) {
-    return null;
-  }
-
-  const team = apiResponse.response[0].team;
-  const venue = apiResponse.response[0].venue;
-
+// 1. Leagues
+exports.transformLeague = (apiData) => {
+  if (!apiData) return null
   return {
-    id: team.id,
-    name: team.name,
-    code: team.code,
-    country: team.country,
-    founded: team.founded,
-    logo: team.logo,
-    venue: {
-      id: venue.id,
-      name: venue.name,
-      address: venue.address,
-      city: venue.city,
-      capacity: venue.capacity,
-      surface: venue.surface,
-      image: venue.image
-    }
-  };
+    id: apiData.league?.id,
+    name: apiData.league?.name,
+    country: apiData.country?.name,
+    countryCode: apiData.country?.code,
+    logo: apiData.league?.logo,
+    flag: apiData.country?.flag,
+    season: apiData.seasons?.[0]?.year || new Date().getFullYear(),
+    type: apiData.league?.type,
+    current: apiData.seasons?.[0]?.current
+  }
 }
 
-/**
- * Transform player data for frontend
- */
-function transformPlayerData(apiResponse) {
-  if (!apiResponse || !apiResponse.response) {
-    return [];
-  }
-
-  return apiResponse.response.map(item => {
-    const player = item.player;
-    const stats = item.statistics && item.statistics[0] ? item.statistics[0] : {};
-    
-    return {
-      id: player.id,
-      name: player.name,
-      firstname: player.firstname,
-      lastname: player.lastname,
-      age: player.age,
-      birth: {
-        date: player.birth.date,
-        place: player.birth.place,
-        country: player.birth.country
-      },
-      nationality: player.nationality,
-      height: player.height,
-      weight: player.weight,
-      photo: player.photo,
-      position: stats.games ? stats.games.position : null,
-      team: stats.team ? {
-        id: stats.team.id,
-        name: stats.team.name,
-        logo: stats.team.logo
-      } : null
-    };
-  });
+exports.transformLeagues = (apiResponse) => {
+  if (!apiResponse?.response) return []
+  return apiResponse.response.map(exports.transformLeague).filter(Boolean)
 }
 
-/**
- * Transform standings data for frontend
- */
-function transformStandingsData(apiResponse) {
-  if (!apiResponse || !apiResponse.response || !apiResponse.response[0] || 
-      !apiResponse.response[0].league.standings || !apiResponse.response[0].league.standings[0]) {
-    return null;
-  }
-
-  const league = apiResponse.response[0].league;
-  const standings = league.standings[0];
-
+// 2. Teams  
+exports.transformTeam = (apiData) => {
+  if (!apiData) return null
   return {
-    league: {
-      id: league.id,
-      name: league.name,
-      country: league.country,
-      logo: league.logo,
-      season: league.season
-    },
-    standings: standings.map(team => ({
-      rank: team.rank,
-      team: {
-        id: team.team.id,
-        name: team.team.name,
-        logo: team.team.logo
-      },
-      points: team.points,
-      goalsDiff: team.goalsDiff,
-      group: team.group,
-      form: team.form,
-      status: team.status,
-      description: team.description,
-      all: {
-        played: team.all.played,
-        win: team.all.win,
-        draw: team.all.draw,
-        lose: team.all.lose,
-        goals: {
-          for: team.all.goals.for,
-          against: team.all.goals.against
-        }
-      },
-      home: {
-        played: team.home.played,
-        win: team.home.win,
-        draw: team.home.draw,
-        lose: team.home.lose,
-        goals: {
-          for: team.home.goals.for,
-          against: team.home.goals.against
-        }
-      },
-      away: {
-        played: team.away.played,
-        win: team.away.win,
-        draw: team.away.draw,
-        lose: team.away.lose,
-        goals: {
-          for: team.away.goals.for,
-          against: team.away.goals.against
-        }
-      }
-    }))
-  };
+    id: apiData.team?.id,
+    name: apiData.team?.name,
+    logo: apiData.team?.logo,
+    country: apiData.team?.country,
+    founded: apiData.team?.founded,
+    national: apiData.team?.national,
+    // Venue info for team profile
+    venue: apiData.venue ? {
+      id: apiData.venue.id,
+      name: apiData.venue.name,
+      address: apiData.venue.address,
+      city: apiData.venue.city,
+      capacity: apiData.venue.capacity,
+      surface: apiData.venue.surface,
+      image: apiData.venue.image
+    } : null
+  }
 }
 
-/**
- * Transform team statistics for frontend
- */
-function transformTeamStatsData(apiResponse) {
-  if (!apiResponse || !apiResponse.response || !apiResponse.response[0]) {
-    return null;
-  }
-
-  const stats = apiResponse.response[0];
-
-  return {
-    league: {
-      id: stats.league.id,
-      name: stats.league.name,
-      country: stats.league.country,
-      logo: stats.league.logo,
-      season: stats.league.season
-    },
-    team: {
-      id: stats.team.id,
-      name: stats.team.name,
-      logo: stats.team.logo
-    },
-    form: stats.form,
-    fixtures: {
-      played: {
-        home: stats.fixtures.played.home,
-        away: stats.fixtures.played.away,
-        total: stats.fixtures.played.total
-      },
-      wins: {
-        home: stats.fixtures.wins.home,
-        away: stats.fixtures.wins.away,
-        total: stats.fixtures.wins.total
-      },
-      draws: {
-        home: stats.fixtures.draws.home,
-        away: stats.fixtures.draws.away,
-        total: stats.fixtures.draws.total
-      },
-      loses: {
-        home: stats.fixtures.loses.home,
-        away: stats.fixtures.loses.away,
-        total: stats.fixtures.loses.total
-      }
-    },
-    goals: {
-      for: {
-        total: stats.goals.for.total.total,
-        average: stats.goals.for.average.total,
-        home: stats.goals.for.total.home,
-        away: stats.goals.for.total.away
-      },
-      against: {
-        total: stats.goals.against.total.total,
-        average: stats.goals.against.average.total,
-        home: stats.goals.against.total.home,
-        away: stats.goals.against.total.away
-      }
-    },
-    biggest: {
-      streak: {
-        wins: stats.biggest.streak.wins,
-        draws: stats.biggest.streak.draws,
-        loses: stats.biggest.streak.loses
-      },
-      wins: {
-        home: stats.biggest.wins.home,
-        away: stats.biggest.wins.away
-      },
-      loses: {
-        home: stats.biggest.loses.home,
-        away: stats.biggest.loses.away
-      },
-      goals: {
-        for: stats.biggest.goals.for.home,
-        against: stats.biggest.goals.against.home
-      }
-    },
-    cleanSheet: {
-      home: stats.clean_sheet.home,
-      away: stats.clean_sheet.away,
-      total: stats.clean_sheet.total
-    },
-    failedToScore: {
-      home: stats.failed_to_score.home,
-      away: stats.failed_to_score.away,
-      total: stats.failed_to_score.total
-    }
-  };
+exports.transformTeams = (apiResponse) => {
+  if (!apiResponse?.response) return []
+  return apiResponse.response.map(exports.transformTeam).filter(Boolean)
 }
 
-/**
- * Transform player statistics for frontend
- */
-function transformPlayerStatsData(apiResponse) {
-  if (!apiResponse || !apiResponse.response || !apiResponse.response[0]) {
-    return null;
-  }
-
-  const playerData = apiResponse.response[0];
-  const stats = playerData.statistics && playerData.statistics[0] ? playerData.statistics[0] : {};
-
+// 3. Players
+exports.transformPlayer = (apiData) => {
+  if (!apiData) return null
+  const stats = apiData.statistics?.[0] || {}
   return {
-    player: {
-      id: playerData.player.id,
-      name: playerData.player.name,
-      firstname: playerData.player.firstname,
-      lastname: playerData.player.lastname,
-      age: playerData.player.age,
-      nationality: playerData.player.nationality,
-      photo: playerData.player.photo
+    id: apiData.player?.id,
+    name: apiData.player?.name,
+    firstname: apiData.player?.firstname,
+    lastname: apiData.player?.lastname,
+    age: apiData.player?.age,
+    birth: {
+      date: apiData.player?.birth?.date,
+      place: apiData.player?.birth?.place,
+      country: apiData.player?.birth?.country
     },
+    nationality: apiData.player?.nationality,
+    height: apiData.player?.height,
+    weight: apiData.player?.weight,
+    injured: apiData.player?.injured,
+    photo: apiData.player?.photo,
+    // Current team info
     team: stats.team ? {
       id: stats.team.id,
       name: stats.team.name,
       logo: stats.team.logo
     } : null,
+    // Position and number
+    position: stats.games?.position,
+    number: stats.games?.number || apiData.player?.number,
+    // Key stats for cards
+    appearances: stats.games?.appearences || 0,
+    goals: stats.goals?.total || 0,
+    assists: stats.goals?.assists || 0
+  }
+}
+
+exports.transformPlayers = (apiResponse) => {
+  if (!apiResponse?.response) return []
+  return apiResponse.response.map(exports.transformPlayer).filter(Boolean)
+}
+
+// 4. Fixtures
+exports.transformFixture = (apiData) => {
+  if (!apiData) return null
+  return {
+    id: apiData.fixture?.id,
+    referee: apiData.fixture?.referee,
+    date: apiData.fixture?.date,
+    timestamp: apiData.fixture?.timestamp,
+    status: {
+      long: apiData.fixture?.status?.long,
+      short: apiData.fixture?.status?.short,
+      elapsed: apiData.fixture?.status?.elapsed
+    },
+    venue: apiData.fixture?.venue ? {
+      id: apiData.fixture.venue.id,
+      name: apiData.fixture.venue.name,
+      city: apiData.fixture.venue.city
+    } : null,
+    // League info
+    league: {
+      id: apiData.league?.id,
+      name: apiData.league?.name,
+      country: apiData.league?.country,
+      logo: apiData.league?.logo,
+      season: apiData.league?.season,
+      round: apiData.league?.round
+    },
+    // Teams
+    teams: {
+      home: {
+        id: apiData.teams?.home?.id,
+        name: apiData.teams?.home?.name,
+        logo: apiData.teams?.home?.logo,
+        winner: apiData.teams?.home?.winner
+      },
+      away: {
+        id: apiData.teams?.away?.id,
+        name: apiData.teams?.away?.name,
+        logo: apiData.teams?.away?.logo,
+        winner: apiData.teams?.away?.winner
+      }
+    },
+    // Goals
+    goals: {
+      home: apiData.goals?.home,
+      away: apiData.goals?.away
+    },
+    // Score details
+    score: {
+      halftime: {
+        home: apiData.score?.halftime?.home,
+        away: apiData.score?.halftime?.away
+      },
+      fulltime: {
+        home: apiData.score?.fulltime?.home,
+        away: apiData.score?.fulltime?.away
+      }
+    }
+  }
+}
+
+exports.transformFixtures = (apiResponse) => {
+  if (!apiResponse?.response) return []
+  return apiResponse.response.map(exports.transformFixture).filter(Boolean)
+}
+
+// 5. Standings
+exports.transformStanding = (teamData) => {
+  if (!teamData) return null
+  return {
+    rank: teamData.rank,
+    team: {
+      id: teamData.team?.id,
+      name: teamData.team?.name,
+      logo: teamData.team?.logo
+    },
+    points: teamData.points,
+    goalsDiff: teamData.goalsDiff,
+    form: teamData.form,
+    all: {
+      played: teamData.all?.played || 0,
+      win: teamData.all?.win || 0,
+      draw: teamData.all?.draw || 0,
+      lose: teamData.all?.lose || 0,
+      goals: {
+        for: teamData.all?.goals?.for || 0,
+        against: teamData.all?.goals?.against || 0
+      }
+    }
+  }
+}
+
+exports.transformStandings = (apiResponse) => {
+  if (!apiResponse?.response?.[0]?.league?.standings?.[0]) return []
+  return apiResponse.response[0].league.standings[0].map(exports.transformStanding).filter(Boolean)
+}
+
+// 6. Fixture Statistics
+exports.transformFixtureStats = (apiData) => {
+  if (!apiData) return null
+  return {
+    team: {
+      id: apiData.team?.id,
+      name: apiData.team?.name,
+      logo: apiData.team?.logo
+    },
+    statistics: (apiData.statistics || []).reduce((acc, stat) => {
+      const key = stat.type?.toLowerCase().replace(/\s+/g, '_').replace(/%/g, 'percent')
+      acc[key] = stat.value
+      return acc
+    }, {})
+  }
+}
+
+// 7. Fixture Events
+exports.transformFixtureEvent = (eventData) => {
+  if (!eventData) return null
+  return {
+    time: {
+      elapsed: eventData.time?.elapsed,
+      extra: eventData.time?.extra
+    },
+    team: {
+      id: eventData.team?.id,
+      name: eventData.team?.name,
+      logo: eventData.team?.logo
+    },
+    player: {
+      id: eventData.player?.id,
+      name: eventData.player?.name
+    },
+    assist: eventData.assist ? {
+      id: eventData.assist.id,
+      name: eventData.assist.name
+    } : null,
+    type: eventData.type,
+    detail: eventData.detail,
+    comments: eventData.comments
+  }
+}
+
+exports.transformFixtureEvents = (apiResponse) => {
+  if (!apiResponse?.response) return []
+  return apiResponse.response.map(exports.transformFixtureEvent).filter(Boolean)
+}
+
+// 8. Player Statistics (detailed)
+exports.transformPlayerStats = (apiData) => {
+  if (!apiData?.statistics) return null
+  const stats = apiData.statistics[0] || {}
+  return {
+    player: exports.transformPlayer(apiData),
     league: stats.league ? {
       id: stats.league.id,
       name: stats.league.name,
-      country: stats.league.country,
-      logo: stats.league.logo,
       season: stats.league.season
     } : null,
+    team: stats.team ? {
+      id: stats.team.id,
+      name: stats.team.name,
+      logo: stats.team.logo
+    } : null,
     games: {
-      appearances: stats.games ? stats.games.appearences : 0,
-      lineups: stats.games ? stats.games.lineups : 0,
-      minutes: stats.games ? stats.games.minutes : 0,
-      position: stats.games ? stats.games.position : null,
-      rating: stats.games ? stats.games.rating : null
+      appearences: stats.games?.appearences || 0,
+      lineups: stats.games?.lineups || 0,
+      minutes: stats.games?.minutes || 0,
+      position: stats.games?.position,
+      rating: stats.games?.rating ? parseFloat(stats.games.rating) : null,
+      captain: stats.games?.captain || false
     },
     goals: {
-      total: stats.goals ? stats.goals.total : 0,
-      assists: stats.goals ? stats.goals.assists : 0,
-      saves: stats.goals ? stats.goals.saves : null
-    },
-    passes: {
-      total: stats.passes ? stats.passes.total : 0,
-      key: stats.passes ? stats.passes.key : 0,
-      accuracy: stats.passes ? stats.passes.accuracy : 0
+      total: stats.goals?.total || 0,
+      assists: stats.goals?.assists || 0
     },
     shots: {
-      total: stats.shots ? stats.shots.total : 0,
-      on: stats.shots ? stats.shots.on : 0
+      total: stats.shots?.total || 0,
+      on: stats.shots?.on || 0
+    },
+    passes: {
+      total: stats.passes?.total || 0,
+      key: stats.passes?.key || 0,
+      accuracy: stats.passes?.accuracy || 0
     },
     cards: {
-      yellow: stats.cards ? stats.cards.yellow : 0,
-      red: stats.cards ? stats.cards.red : 0
+      yellow: stats.cards?.yellow || 0,
+      red: stats.cards?.red || 0
     }
-  };
-}
-
-/**
- * Transform leagues data for frontend
- */
-function transformLeaguesData(apiResponse) {
-  if (!apiResponse || !apiResponse.response) {
-    return [];
   }
-
-  return apiResponse.response.map(item => ({
-    league: {
-      id: item.league.id,
-      name: item.league.name,
-      type: item.league.type,
-      logo: item.league.logo
-    },
-    country: {
-      name: item.country.name,
-      code: item.country.code,
-      flag: item.country.flag
-    },
-    seasons: item.seasons ? item.seasons.map(season => ({
-      year: season.year,
-      start: season.start,
-      end: season.end,
-      current: season.current
-    })) : []
-  }));
 }
 
-/**
- * Transform fixture data for frontend use
- * Keeps essential match information, removes API metadata
- */
-function transformFixture(fixture) {
+// 9. Team Statistics
+exports.transformTeamStats = (apiData) => {
+  if (!apiData) return null
+  
+  const fixtures = apiData.fixtures || {}
+  const goals = apiData.goals || {}
+  
   return {
-    id: fixture.fixture.id,
-    date: fixture.fixture.date,
-    status: {
-      long: fixture.fixture.status.long,
-      short: fixture.fixture.status.short,
-      elapsed: fixture.fixture.status.elapsed
-    },
-    league: {
-      id: fixture.league.id,
-      name: fixture.league.name,
-      country: fixture.league.country,
-      season: fixture.league.season,
-      round: fixture.league.round
-    },
-    teams: {
-      home: {
-        id: fixture.teams.home.id,
-        name: fixture.teams.home.name,
-        logo: fixture.teams.home.logo,
-        winner: fixture.teams.home.winner
-      },
-      away: {
-        id: fixture.teams.away.id,
-        name: fixture.teams.away.name,
-        logo: fixture.teams.away.logo,
-        winner: fixture.teams.away.winner
-      }
+    league: apiData.league ? {
+      id: apiData.league.id,
+      name: apiData.league.name,
+      season: apiData.league.season
+    } : null,
+    team: apiData.team ? {
+      id: apiData.team.id,
+      name: apiData.team.name,
+      logo: apiData.team.logo
+    } : null,
+    form: apiData.form,
+    fixtures: {
+      played: fixtures.played?.total || 0,
+      wins: fixtures.wins?.total || 0,
+      draws: fixtures.draws?.total || 0,
+      loses: fixtures.loses?.total || 0
     },
     goals: {
-      home: fixture.goals.home,
-      away: fixture.goals.away
+      for: goals.for?.total?.total || 0,
+      against: goals.against?.total?.total || 0,
+      avg_for: goals.for?.average?.total || '0.0',
+      avg_against: goals.against?.average?.total || '0.0'
     },
-    score: fixture.score,
-    venue: {
-      name: fixture.fixture.venue?.name,
-      city: fixture.fixture.venue?.city
-    },
-    referee: fixture.fixture.referee
-  };
+    clean_sheet: apiData.clean_sheet?.total || 0,
+    failed_to_score: apiData.failed_to_score?.total || 0
+  }
 }
 
-module.exports = {
-  transformTeamData,
-  transformPlayerData,
-  transformStandingsData,
-  transformTeamStatsData,
-  transformPlayerStatsData,
-  transformLeaguesData,
-  transformFixture
-};
+// 10. Fixture Player Stats
+exports.transformFixturePlayerStats = (apiData) => {
+  if (!apiData) return null
+  return {
+    team: {
+      id: apiData.team?.id,
+      name: apiData.team?.name,
+      logo: apiData.team?.logo
+    },
+    players: (apiData.players || []).map(playerData => ({
+      player: {
+        id: playerData.player?.id,
+        name: playerData.player?.name,
+        photo: playerData.player?.photo,
+        number: playerData.player?.number,
+        position: playerData.player?.pos
+      },
+      statistics: (playerData.statistics || []).map(stat => ({
+        minutes: stat.games?.minutes,
+        rating: stat.games?.rating ? parseFloat(stat.games.rating) : null,
+        captain: stat.games?.captain,
+        substitute: stat.games?.substitute,
+        goals: stat.goals?.total || 0,
+        assists: stat.goals?.assists || 0,
+        shots: stat.shots?.total || 0,
+        shots_on: stat.shots?.on || 0,
+        passes: stat.passes?.total || 0,
+        passes_accuracy: stat.passes?.accuracy,
+        tackles: stat.tackles?.total || 0,
+        yellow_cards: stat.cards?.yellow || 0,
+        red_cards: stat.cards?.red || 0
+      }))
+    }))
+  }
+}

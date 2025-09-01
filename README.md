@@ -1,67 +1,28 @@
-# football-backend
+# Football Backend
 
-A Node.js + Express backend for football (soccer) data. This project uses MongoDB for persistence, Redis for caching, and the API-Football (v3) service as the external data source. It implements a "smart flow" (Cache -> DB -> External API) and includes endpoints for leagues, teams, players, fixtures, statistics, and per-fixture player stats.
+Lightweight backend for Football data (API-Football ingestion, Transform-at-Storage, Redis cache, MongoDB persistence).
 
-## Quick setup
+Key ideas
+- Transform-at-Storage: raw API responses are normalized and transformed once when stored so the API serves frontend-ready JSON by default.
+- Smart Flow: Redis cache → MongoDB (persistent) → API fallback. Redis stores transformed responses for fast reads; raw full API payloads are available with `?raw=true`.
 
-If you already have a local git repository and want to push it to GitHub, run (replace values where needed):
+Quick start
+1. Install dependencies: run `npm install` in the project root.
+2. Create a `.env` with your MongoDB and Redis connection strings and API-Football key (see existing docs in `Documentation/`).
+3. Start the server: `node server.js` or use `nodemon server.js` for development.
 
-```powershell
-# create README and push a new repo
-echo "# football-backend" >> README.md
-git init
-git add README.md
-git commit -m "first commit"
-git branch -M main
-git remote add origin https://github.com/Manavrmanai/football-backend.git
-git push -u origin main
+Notes
+- Endpoints return transformed, frontend-ready data by default. Add `?raw=true` to get the original API payload for debugging or storage verification.
+- Caching: transformed responses are cached in Redis with TTLs tuned per-resource (fixtures shorter, leagues/teams longer). The backend avoids caching empty API responses.
+- Routing: the general fixture route uses numeric-ID validation to avoid swallowing more-specific sub-routes (for example `/:id/stats`, `/:id/events`, `/:id/players`).
 
-# or, if you already have an existing repo to push
-git remote add origin https://github.com/Manavrmanai/football-backend.git
-git branch -M main
-git push -u origin main
-```
+Documentation
+- See `Documentation/ENDPOINTS_QUICK_REFERENCE.md` for a complete list of implemented endpoints and example requests.
+- See `Documentation/DATA_TRANSFORMATION_GUIDE.md` for details on transformer functions and the data contract expected by the frontend.
 
-### Local development
+Testing
+- Use curl or Postman to hit endpoints on `http://localhost:3000` after starting the server. Run each endpoint twice to confirm Smart Flow: first call should show DB/API logs; second call should show Redis cache hits.
 
-1. Install dependencies:
+If something looks off, clear Redis keys (example helper scripts are in the repo) and retry.
 
-```powershell
-npm install
-```
-
-2. Create a `.env` file at the project root with your secrets (example keys):
-
-```
-MONGODB_URI=<your_mongo_connection_string>
-REDIS_URL=<your_redis_connection_string>
-API_FOOTBALL_KEY=<your_api_football_key>
-PORT=3000
-```
-
-3. Start the server (development):
-
-```powershell
-npx nodemon server.js
-# or
-node server.js
-```
-
-4. API endpoints live under `/api/*`. See `ENDPOINTS_QUICK_REFERENCE.md` for a full list of routes and usage.
-
-## Project structure (high level)
-
-- `server.js` — app entry point
-- `routes/` — Express route handlers (leagues, teams, players, fixtures, statistics, etc.)
-- `models/` — Mongoose models
-- `utils/` — API wrapper and data transformers
-- `*.md` — documentation and API guides
-
-## Notes
-
-- The project expects a running MongoDB and Redis instance in production.
-- Many endpoints support a `?raw=true` query to return the upstream API response; default responses are transformed for frontend consumption.
-
-## License
-
-This project is licensed under the MIT License — see `LICENSE` for details.
+Enjoy — contributions and issues are welcome.

@@ -4,6 +4,7 @@ const router = express.Router();
 const { createClient } = require('redis');
 const footballApi = require('../utils/footballApi');
 const Player = require('../models/player');
+const { transformPlayers, transformPlayer } = require('../utils/dataTransformers');
 
 // GET /api/players/:id → single player info
 router.get('/:id', async (req, res) => {
@@ -22,7 +23,14 @@ router.get('/:id', async (req, res) => {
     if (cachedData) {
       console.log('✅ Player data from Redis Cache');
       await redisClient.disconnect();
-      return res.json(JSON.parse(cachedData));
+      const data = JSON.parse(cachedData);
+      
+      const raw = req.query.raw === 'true';
+      if (raw) {
+        return res.json(data);
+      } else {
+        return res.json({ response: transformPlayer(data.response?.[0]) });
+      }
     }
 
     // Fetch from API
@@ -73,10 +81,15 @@ router.get('/:id', async (req, res) => {
     };
 
     // Cache for 6 hours
-    await redisClient.setEx(cacheKey, 21600, JSON.stringify(result));
+    await redisClient.setEx(cacheKey, 21600, JSON.stringify(apiData));
     await redisClient.disconnect();
     
-    res.json(result);
+    const raw = req.query.raw === 'true';
+    if (raw) {
+      return res.json(apiData);
+    } else {
+      return res.json({ response: transformPlayer(apiData.response[0]) });
+    }
   } catch (error) {
     console.error(`Error fetching player ${playerId}:`, error.message);
     if (redisClient) await redisClient.disconnect();

@@ -5,6 +5,7 @@ const { createClient } = require('redis');
 const footballApi = require('../utils/footballApi');
 const TeamStatistics = require('../models/teamStatistics');
 const PlayerStatistics = require('../models/playerStatistics');
+const { transformTeamStats, transformPlayerStats } = require('../utils/dataTransformers');
 
 // GET /api/teams/:id/stats → team statistics
 router.get('/teams/:id/stats', async (req, res) => {
@@ -29,7 +30,10 @@ router.get('/teams/:id/stats', async (req, res) => {
     if (cachedData) {
       console.log('✅ Team stats data from Redis Cache');
       await redisClient.disconnect();
-      return res.json(JSON.parse(cachedData));
+      const data = JSON.parse(cachedData);
+      
+      // Cache now contains clean data, so return directly
+      return res.json(data);
     }
 
     // 2. Check MongoDB
@@ -51,7 +55,13 @@ router.get('/teams/:id/stats', async (req, res) => {
       // Refresh cache with DB data (1 hour)
       await redisClient.setEx(cacheKey, 3600, JSON.stringify(apiFormat));
       await redisClient.disconnect();
-      return res.json(apiFormat);
+      
+      const raw = req.query.raw === 'true';
+      if (raw) {
+        return res.json(apiFormat);
+      } else {
+        return res.json({ response: transformTeamStats(apiFormat.response) });
+      }
     }
 
     // 3. Data not found - fetch from API
@@ -111,7 +121,13 @@ router.get('/teams/:id/stats', async (req, res) => {
       console.error('Warning: failed to set team stats cache', cacheErr && cacheErr.message);
     }
     await redisClient.disconnect();
-    return res.json(result);
+    
+    const raw = req.query.raw === 'true';
+    if (raw) {
+      return res.json(result);
+    } else {
+      return res.json({ response: transformTeamStats(result) });
+    }
   } catch (error) {
     console.error(`Error fetching stats for team ${teamId}:`, error.message);
     if (redisClient) await redisClient.disconnect();
@@ -123,7 +139,8 @@ router.get('/teams/:id/stats', async (req, res) => {
 router.get('/players/:id/stats', async (req, res) => {
   const playerId = req.params.id;
   const season = req.query.season || new Date().getFullYear();
-  const cacheKey = `player:${playerId}:stats:${season}`;
+  const league = req.query.league; // Add league parameter
+  const cacheKey = `player:${playerId}:stats:${league || 'all'}:${season}`;
   let redisClient;
 
   try {
@@ -135,8 +152,21 @@ router.get('/players/:id/stats', async (req, res) => {
     const cachedData = await redisClient.get(cacheKey);
     if (cachedData) {
       console.log('✅ Player stats data from Redis Cache');
-      await redisClient.disconnect();
-      return res.json(JSON.parse(cachedData));
+      const data = JSON.parse(cachedData);
+      
+      // Check if cached data is valid (not null/empty)
+      if (!data || !data.player || !data.statistics || data.statistics.length === 0) {
+        console.log('⚠️ Cached data is empty/invalid, clearing cache and fetching from API');
+        await redisClient.del(cacheKey);
+      } else {
+        await redisClient.disconnect();
+        const raw = req.query.raw === 'true';
+        if (raw) {
+          return res.json({ response: [data] });
+        } else {
+          return res.json({ response: transformPlayerStats(data) });
+        }
+      }
     }
 
     // Fetch from API
@@ -144,32 +174,73 @@ router.get('/players/:id/stats', async (req, res) => {
     const apiData = await footballApi.getPlayer(playerId, season);
     
     if (!apiData.response || apiData.response.length === 0) {
+      console.log(`⚠️ No player data found for player ${playerId} in season ${season}`);
       await redisClient.disconnect();
       return res.status(404).json({ error: 'Player statistics not found' });
     }
 
     const playerData = apiData.response[0] || {};
     
+    // Check if player has statistics for this season
+    if (!playerData.statistics || playerData.statistics.length === 0) {
+      console.log(`⚠️ No statistics found for player ${playerId} in season ${season}`);
+      await redisClient.disconnect();
+      return res.status(404).json({ error: `No statistics found for player ${playerId} in season ${season}` });
+    }
+    
+    console.log(`✅ Found ${playerData.statistics.length} stat records for player ${playerId}`);
+    
+    // Filter by league if provided
+    let filteredStats = playerData.statistics;
+    if (league) {
+      filteredStats = playerData.statistics.filter(stat => 
+        stat.league && stat.league.id === parseInt(league)
+      );
+      console.log(`🎯 Filtered to ${filteredStats.length} stats for league ${league}`);
+      
+      if (filteredStats.length === 0) {
+        console.log(`⚠️ No statistics found for player ${playerId} in league ${league} for season ${season}`);
+        await redisClient.disconnect();
+        return res.status(404).json({ 
+          error: `No statistics found for player ${playerId} in league ${league} for season ${season}` 
+        });
+      }
+    }
+
+    // Create the data structure to cache and return
+    const dataToCache = {
+      ...playerData,
+      statistics: filteredStats
+    };
+    
     // Save to MongoDB if we have data
-    if (apiData.response.length > 0 && playerData.player) {
+    if (playerData.player) {
       try {
         await PlayerStatistics.findOneAndUpdate(
-          { 'player.id': playerData.player.id },
+          { 'player.id': playerData.player.id, season: season },
           playerData,
           { upsert: true, new: true }
         );
+        console.log(`💾 Saved player ${playerId} statistics to MongoDB`);
       } catch (dbErr) {
         console.error('Warning: Failed to save player statistics to DB:', dbErr.message);
       }
     }
 
     try {
-      await redisClient.setEx(cacheKey, 14400, JSON.stringify(playerData));
+      await redisClient.setEx(cacheKey, 3600, JSON.stringify(dataToCache));
+      console.log(`💾 Cached player ${playerId} statistics (${filteredStats.length} records)`);
     } catch (cacheErr) {
       console.error('Warning: failed to set player stats cache', cacheErr && cacheErr.message);
     }
     await redisClient.disconnect();
-    return res.json(playerData);
+    
+    const raw = req.query.raw === 'true';
+    if (raw) {
+      return res.json(dataToCache);
+    } else {
+      return res.json({ response: transformPlayerStats(dataToCache) });
+    }
   } catch (error) {
     console.error(`Error fetching stats for player ${playerId}:`, error.message);
     if (redisClient) await redisClient.disconnect();

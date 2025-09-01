@@ -25,6 +25,7 @@ const teamsRouter = require('./routes/teams');
 const playersRouter = require('./routes/players');
 const statisticsRouter = require('./routes/statistics');
 const fixturesRouter = require('./routes/fixtures');
+const searchRouter = require('./routes/search');
 
 // API Routes
 app.use('/api/leagues', leaguesRouter);
@@ -32,6 +33,7 @@ app.use('/api/teams', teamsRouter);
 app.use('/api/players', playersRouter);
 app.use('/api', statisticsRouter); // for /api/teams/:id/stats and /api/players/:id/stats
 app.use('/api/fixtures', fixturesRouter);
+app.use('/api/search', searchRouter);
 
 // Health check endpoint
 app.get('/health', (req, res) => {
