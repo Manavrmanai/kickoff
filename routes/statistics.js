@@ -169,7 +169,48 @@ router.get('/players/:id/stats', async (req, res) => {
       }
     }
 
-    // Fetch from API
+    // Check MongoDB after cache miss
+    console.log(`🔍 Checking MongoDB for player ${playerId} stats (season ${season})...`);
+    let dbData = await PlayerStatistics.findOne({ 
+      'player.id': parseInt(playerId), 
+      'statistics.league.season': parseInt(season) 
+    });
+
+    if (dbData) {
+      console.log(`✅ Found player ${playerId} stats in MongoDB`);
+      
+      // Filter by league if provided
+      let filteredStats = dbData.statistics;
+      if (league) {
+        filteredStats = dbData.statistics.filter(stat => 
+          stat.league && stat.league.id === parseInt(league)
+        );
+        console.log(`🎯 Filtered to ${filteredStats.length} stats for league ${league}`);
+      }
+
+      // Create the data structure to cache and return
+      const dataToCache = {
+        ...dbData.toObject(),
+        statistics: filteredStats
+      };
+
+      try {
+        await redisClient.setEx(cacheKey, 3600, JSON.stringify(dataToCache));
+        console.log('💾 Player stats data cached from DB');
+      } catch (cacheErr) {
+        console.error('Warning: failed to cache player stats from DB', cacheErr && cacheErr.message);
+      }
+      await redisClient.disconnect();
+
+      const raw = req.query.raw === 'true';
+      if (raw) {
+        return res.json({ response: [dataToCache] });
+      } else {
+        return res.json({ response: transformPlayerStats(dataToCache) });
+      }
+    }
+
+    // Fetch from API as last resort
     console.log(`🌐 Fetching stats for player ${playerId} from API`);
     const apiData = await footballApi.getPlayer(playerId, season);
     
@@ -217,7 +258,7 @@ router.get('/players/:id/stats', async (req, res) => {
     if (playerData.player) {
       try {
         await PlayerStatistics.findOneAndUpdate(
-          { 'player.id': playerData.player.id, season: season },
+          { 'player.id': playerData.player.id, 'statistics.league.season': season },
           playerData,
           { upsert: true, new: true }
         );

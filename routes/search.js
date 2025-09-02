@@ -5,7 +5,7 @@ const footballApi = require('../utils/footballApi');
 const Player = require('../models/player');
 const Team = require('../models/team');
 const League = require('../models/league');
-const Fixture = require('../models/match'); // existing match model file name is match.js
+const Fixture = require('../models/fixture'); // Use the correct fixture model
 const { transformPlayers, transformTeams, transformLeagues, transformLeague, transformTeam, transformPlayer } = require('../utils/dataTransformers');
 
 // Smart flow helper
@@ -188,17 +188,42 @@ router.get('/', async (req, res) => {
           return res.json(JSON.parse(cached));
         }
 
-        // Check DB: match model (match.js) may store fixtures differently; attempt simple query
+        // Check DB: Use correct fixture model with proper field queries
         console.log('🔍 Checking MongoDB for fixtures...');
         let dbQuery = {};
-        if (team) dbQuery['team.id'] = parseInt(team);
+        if (team) {
+          dbQuery.$or = [
+            { 'teams.home.id': parseInt(team) },
+            { 'teams.away.id': parseInt(team) }
+          ];
+        }
         if (league) dbQuery['league.id'] = parseInt(league);
-        if (date) dbQuery['fixture.date'] = new Date(date);
+        if (date) dbQuery['fixture.date'] = { $regex: date }; // Date stored as string
+        if (season) dbQuery['league.season'] = parseInt(season);
+        
         const dbMatches = await Fixture.find(dbQuery).limit(100);
         if (dbMatches && dbMatches.length) {
           console.log(`✅ Found ${dbMatches.length} fixtures in MongoDB`);
-          const out = { response: dbMatches.map(m => ({ id: m.apiId || m.fixture?.id, date: m.fixture?.date || m.date, homeTeam: m.teams?.home, awayTeam: m.teams?.away, status: m.fixture?.status || null, score: m.score || null })) };
-          await redisClient.setEx(cacheKey, 600, JSON.stringify(out));
+          const out = { 
+            response: dbMatches.map(m => ({ 
+              id: m.fixture?.id, 
+              date: m.fixture?.date, 
+              homeTeam: m.teams?.home, 
+              awayTeam: m.teams?.away, 
+              status: m.fixture?.status, 
+              score: m.score,
+              goals: m.goals,
+              league: m.league
+            })) 
+          };
+          
+          try {
+            await redisClient.setEx(cacheKey, 600, JSON.stringify(out));
+            console.log('💾 Fixtures data cached from DB');
+          } catch (cacheErr) {
+            console.error('Warning: failed to cache fixtures from DB', cacheErr && cacheErr.message);
+          }
+          
           return res.json(out);
         }
 
@@ -207,12 +232,24 @@ router.get('/', async (req, res) => {
         const apiRes = await footballApi.getFixtures(league || '', season);
         if (!apiRes.response || apiRes.response.length === 0) return res.status(404).json({ error: 'No fixtures found' });
 
-        // save to DB and transform minimal fields
+        // save to DB using correct fixture model structure
         console.log(`💾 Saving ${apiRes.response.length} fixtures to MongoDB`);
         for (const f of apiRes.response) {
           try {
-            await Fixture.findOneAndUpdate({ apiId: f.fixture.id }, { apiId: f.fixture.id, fixture: f.fixture, league: f.league, teams: f.teams, score: f.score }, { upsert: true });
-          } catch (e) { /* ignore save errors */ }
+            await Fixture.findOneAndUpdate(
+              { 'fixture.id': f.fixture.id }, 
+              { 
+                fixture: f.fixture, 
+                league: f.league, 
+                teams: f.teams, 
+                goals: f.goals,
+                score: f.score 
+              }, 
+              { upsert: true }
+            );
+          } catch (e) { 
+            console.error('Error saving fixture:', e.message);
+          }
         }
         const transformed = apiRes.response.map(f => ({ id: f.fixture.id, date: f.fixture.date, homeTeam: f.teams.home, awayTeam: f.teams.away, status: f.fixture.status, score: f.score }));
         const out = { response: transformed };

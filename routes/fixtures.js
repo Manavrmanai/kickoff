@@ -351,9 +351,8 @@ router.get('/:id/events', async (req, res) => {
     redisClient = createClient();
     await redisClient.connect();
 
-    // Check cache first
+    // 1. Check Redis cache first
     const cachedData = await redisClient.get(cacheKey);
-    let apiData;
     
     if (cachedData) {
       console.log('✅ Fixture events data from Redis Cache');
@@ -374,20 +373,47 @@ router.get('/:id/events', async (req, res) => {
       }
     }
 
-    // Fetch from API
-    console.log(`🌐 Fetching fixture events for ${fixtureId} from API`);
-    apiData = await footballApi.getFixtureEvents(fixtureId);
-
-    // Only cache if we have valid data
-    if (apiData && apiData.response && apiData.response.length > 0) {
-      await redisClient.setEx(cacheKey, 900, JSON.stringify(apiData));
-      console.log(`✅ Cached ${apiData.response.length} events to Redis`);
-    } else {
-      console.log('⚠️ No events found, not caching empty result');
+    // 2. Check MongoDB if cache miss
+    console.log(`🔍 Checking MongoDB for fixture ${fixtureId} events...`);
+    const dbData = await FixtureEvents.findOne({ fixture_id: parseInt(fixtureId) });
+    if (dbData) {
+      console.log('✅ Found fixture events in MongoDB, refreshing cache');
+      
+      // Convert Mongoose document to plain object
+      const plainData = dbData.toObject ? dbData.toObject() : dbData;
+      
+      // Transform DB data to API format
+      const apiFormat = {
+        response: plainData.response
+      };
+      
+      // Cache the transformed response
+      const transformedEvents = transformFixtureEvents(apiFormat);
+      await redisClient.setEx(cacheKey, 900, JSON.stringify({ response: transformedEvents }));
+      console.log(`✅ Refreshed cache from MongoDB data`);
+      
+      await redisClient.disconnect();
+      
+      const raw = req.query.raw === 'true';
+      if (raw) {
+        return res.json(apiFormat);
+      } else {
+        return res.json({ response: transformedEvents });
+      }
     }
 
-    // Save to MongoDB only when fetching fresh data from API
-    if (apiData && apiData.response) {
+    // 3. Fetch from API as last resort
+    console.log(`🌐 No data in cache or DB, fetching fixture events for ${fixtureId} from API`);
+    const apiData = await footballApi.getFixtureEvents(fixtureId);
+
+    // Only cache and save if we have valid data
+    if (apiData && apiData.response && apiData.response.length > 0) {
+      // Transform and cache the final response
+      const transformedEvents = transformFixtureEvents(apiData);
+      await redisClient.setEx(cacheKey, 900, JSON.stringify({ response: transformedEvents }));
+      console.log(`✅ Cached ${apiData.response.length} events to Redis`);
+      
+      // Save to MongoDB when fetching fresh data from API
       try {
         await FixtureEvents.findOneAndUpdate(
           { fixture_id: parseInt(fixtureId) },
@@ -402,6 +428,8 @@ router.get('/:id/events', async (req, res) => {
       } catch (saveError) {
         console.error(`❌ Failed to save fixture events for ${fixtureId}:`, saveError.message);
       }
+    } else {
+      console.log('⚠️ No events found, not caching empty result');
     }
 
     await redisClient.disconnect();

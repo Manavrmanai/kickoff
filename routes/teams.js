@@ -123,7 +123,43 @@ router.get('/:id/players', async (req, res) => {
       return res.json(data);
     }
 
-    // Fetch from API
+    // Check MongoDB if cache miss
+    console.log('🔍 Checking MongoDB for team players data...');
+    const dbPlayers = await Player.find({ 
+      'statistics.team.id': parseInt(teamId),
+      'statistics.league.season': parseInt(season)
+    });
+    
+    if (dbPlayers && dbPlayers.length > 0) {
+      console.log(`✅ Found ${dbPlayers.length} team players in MongoDB`);
+      
+      // Transform from MongoDB data
+      const transformedPlayers = dbPlayers.map(player => ({
+        id: player.apiId,
+        name: player.name,
+        firstname: player.firstname,
+        lastname: player.lastname,
+        age: player.age,
+        birth: player.birth,
+        nationality: player.nationality,
+        height: player.height,
+        weight: player.weight,
+        injured: player.injured,
+        photo: player.photo,
+        position: player.statistics[0]?.games?.position || 'Unknown',
+        statistics: player.statistics
+      }));
+      
+      const cleanApiFormat = { response: transformedPlayers };
+      
+      // Cache the transformed data (6 hours)
+      await redisClient.setEx(cacheKey, 21600, JSON.stringify(cleanApiFormat));
+      await redisClient.disconnect();
+      
+      return res.json(req.query.raw === 'true' ? { response: dbPlayers } : cleanApiFormat);
+    }
+
+    // Fetch from API only if not in cache AND not in database
     console.log(`🌐 Fetching players for team ${teamId} from API`);
     const apiData = await footballApi.getPlayersByTeam(teamId, season);
     
