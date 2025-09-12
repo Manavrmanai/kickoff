@@ -1,0 +1,232 @@
+/* Football Analytics Platform Design System */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Football Analytics Color Palette */
+    --background: 222 47% 3%;
+    --foreground: 210 40% 98%;
+
+    --card: 222 47% 5%;
+    --card-foreground: 210 40% 98%;
+
+    --popover: 222 47% 5%;
+    --popover-foreground: 210 40% 98%;
+
+    /* Football Green Primary */
+    --primary: 142 76% 36%;
+    --primary-foreground: 210 40% 98%;
+    --primary-glow: 142 76% 50%;
+
+    /* Gold Secondary */
+    --secondary: 45 93% 47%;
+    --secondary-foreground: 222 47% 11%;
+
+    /* Muted Surfaces */
+    --muted: 217 33% 17%;
+    --muted-foreground: 215 20% 65%;
+
+    /* Success Green */
+    --accent: 142 76% 36%;
+    --accent-foreground: 210 40% 98%;
+
+    /* Danger Red */
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 210 40% 98%;
+
+    /* Borders & Inputs */
+    --border: 217 33% 17%;
+    --input: 217 33% 17%;
+    --ring: 142 76% 36%;
+
+    /* Warning Orange */
+    --warning: 35 91% 62%;
+    --warning-foreground: 222 47% 11%;
+
+    /* Info Blue */
+    --info: 213 94% 68%;
+    --info-foreground: 222 47% 11%;
+
+    /* Beautiful Gradients */
+    --gradient-primary: linear-gradient(135deg, hsl(142 76% 36%), hsl(142 76% 50%));
+    --gradient-secondary: linear-gradient(135deg, hsl(45 93% 47%), hsl(45 93% 60%));
+    --gradient-hero: linear-gradient(135deg, hsl(222 47% 3%), hsl(217 33% 17%));
+    --gradient-card: linear-gradient(135deg, hsl(222 47% 5%), hsl(217 33% 17%));
+    --gradient-live: linear-gradient(90deg, hsl(0 72% 51%), hsl(0 72% 60%));
+
+    /* Beautiful Shadows */
+    --shadow-primary: 0 10px 30px -10px hsl(142 76% 36% / 0.3);
+    --shadow-secondary: 0 10px 30px -10px hsl(45 93% 47% / 0.3);
+    --shadow-elegant: 0 20px 60px -20px hsl(142 76% 36% / 0.4);
+    --shadow-card: 0 8px 32px hsl(222 47% 3% / 0.6);
+    --shadow-glow: 0 0 40px hsl(142 76% 50% / 0.4);
+
+    /* Animations */
+    --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-bounce: all 0.5s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+
+    --radius: 0.75rem;
+
+    --sidebar-background: 222 47% 4%;
+    --sidebar-foreground: 210 40% 98%;
+    --sidebar-primary: 142 76% 36%;
+    --sidebar-primary-foreground: 210 40% 98%;
+    --sidebar-accent: 217 33% 17%;
+    --sidebar-accent-foreground: 210 40% 98%;
+    --sidebar-border: 217 33% 17%;
+    --sidebar-ring: 142 76% 36%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  }
+
+  /* Scrollbar Styling */
+  ::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-muted;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-primary rounded-full;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-primary-glow;
+  }
+}
+
+@layer components {
+  /* Custom Gradient Backgrounds */
+  .bg-gradient-primary {
+    background: var(--gradient-primary);
+  }
+
+  .bg-gradient-secondary {
+    background: var(--gradient-secondary);
+  }
+
+  .bg-gradient-hero {
+    background: var(--gradient-hero);
+  }
+
+  .bg-gradient-card {
+    background: var(--gradient-card);
+  }
+
+  .bg-gradient-live {
+    background: var(--gradient-live);
+  }
+
+  /* Beautiful Shadows */
+  .shadow-primary {
+    box-shadow: var(--shadow-primary);
+  }
+
+  .shadow-secondary {
+    box-shadow: var(--shadow-secondary);
+  }
+
+  .shadow-elegant {
+    box-shadow: var(--shadow-elegant);
+  }
+
+  .shadow-card {
+    box-shadow: var(--shadow-card);
+  }
+
+  .shadow-glow {
+    box-shadow: var(--shadow-glow);
+  }
+
+  /* Smooth Transitions */
+  .transition-smooth {
+    transition: var(--transition-smooth);
+  }
+
+  .transition-bounce {
+    transition: var(--transition-bounce);
+  }
+
+  /* Live Match Pulse Animation */
+  .live-pulse {
+    animation: live-pulse 2s infinite;
+  }
+
+  @keyframes live-pulse {
+    0%, 100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.7;
+    }
+  }
+
+  /* Hover Scale Effect */
+  .hover-scale {
+    transition: transform 0.2s ease-out;
+  }
+
+  .hover-scale:hover {
+    transform: scale(1.02);
+  }
+
+  /* Glass Effect */
+  .glass {
+    -webkit-backdrop-filter: blur(16px);
+    backdrop-filter: blur(16px);
+    background: hsl(var(--card) / 0.8);
+    border: 1px solid hsl(var(--border) / 0.5);
+  }
+
+  /* Match Card Styles */
+  .match-card {
+    @apply bg-gradient-card border border-border/50 rounded-xl p-6 transition-smooth hover:border-primary/30 hover:shadow-primary;
+  }
+
+  /* Team Badge Styles */
+  .team-badge {
+    @apply w-12 h-12 rounded-full bg-muted border-2 border-border flex items-center justify-center transition-smooth hover:border-primary;
+  }
+
+  /* Stats Card */
+  .stats-card {
+    @apply bg-card border border-border rounded-lg p-4 transition-smooth hover:bg-card/80 hover:border-primary/30;
+  }
+
+  /* Navigation Link Active */
+  .nav-link-active {
+    @apply bg-primary text-primary-foreground shadow-primary;
+  }
+}
+
+@layer utilities {
+  /* Text Gradients */
+  .text-gradient-primary {
+    background: var(--gradient-primary);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .text-gradient-secondary {
+    background: var(--gradient-secondary);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+}
