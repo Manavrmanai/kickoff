@@ -7,7 +7,16 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: [
+    'http://localhost:5173', // Vite default port
+    'http://localhost:3001', // Alternative frontend port
+    'http://localhost:4173', // Vite preview port
+  ],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept']
+}));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -65,14 +74,41 @@ app.get('/', (req, res) => {
         'GET /api/players/search?name=ronaldo&season=2023': 'Search players'
       },
       statistics: {
-        'GET /api/teams/:id/stats?league=39&season=2023': 'Get team statistics',
-        'GET /api/players/:id/stats?league=39&season=2023': 'Get player statistics'
+        'GET /api/teams/:id/stats?league=:leagueId&season=2023': 'Get team statistics',
+        'GET /api/players/:id/stats?league=:leagueId&season=2023': 'Get player statistics'
       },
       fixtures: {
-        'GET /api/fixtures?league=39&season=2023': 'Get fixtures by league & season',
+        'GET /api/fixtures?league=:leagueId&season=2023': 'Get fixtures by league & season',
         'GET /api/fixtures/:id': 'Get single fixture',
         'GET /api/fixtures/:id/stats': 'Get fixture statistics',
         'GET /api/fixtures/:id/events': 'Get fixture events'
+      },
+      search: {
+        'GET /api/search?type=players&name=messi': 'Search players by name',
+        'GET /api/search?type=teams&league=:leagueId': 'Search teams in league',
+        'GET /api/search?type=fixtures&league=:leagueId&season=2023': 'Search fixtures'
+      },
+      examples: {
+        'Premier League (39)': {
+          'standings': '/api/leagues/39/standings?season=2023',
+          'teams': '/api/leagues/39/teams',
+          'fixtures': '/api/fixtures?league=39&season=2023'
+        },
+        'La Liga (140)': {
+          'standings': '/api/leagues/140/standings?season=2023',
+          'teams': '/api/leagues/140/teams',
+          'fixtures': '/api/fixtures?league=140&season=2023'
+        },
+        'Serie A (135)': {
+          'standings': '/api/leagues/135/standings?season=2023',
+          'teams': '/api/leagues/135/teams',
+          'fixtures': '/api/fixtures?league=135&season=2023'
+        },
+        'Bundesliga (78)': {
+          'standings': '/api/leagues/78/standings?season=2023',
+          'teams': '/api/leagues/78/teams',
+          'fixtures': '/api/fixtures?league=78&season=2023'
+        }
       }
     },
     documentation: 'Use the endpoints above to fetch football data'

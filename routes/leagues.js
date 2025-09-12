@@ -7,6 +7,7 @@ const League = require('../models/league');
 const Team = require('../models/team');
 const Standing = require('../models/standing');
 const { transformLeagues, transformLeague, transformTeams, transformStandings, transformStanding, transformTeam } = require('../utils/dataTransformers');
+const { DEFAULT_SEASON } = require('../utils/config');
 
 // GET /api/leagues → list all leagues
 router.get('/', async (req, res) => {
@@ -43,7 +44,7 @@ router.get('/', async (req, res) => {
         countryCode: league.country?.code,
         logo: league.logo,
         flag: league.country?.flag,
-        season: league.seasons?.[0]?.year || new Date().getFullYear(),
+  season: league.seasons?.[0]?.year || DEFAULT_SEASON,
         type: league.type,
         current: league.seasons?.[0]?.current
       }));
@@ -213,7 +214,8 @@ router.get('/:id', async (req, res) => {
 // GET /api/leagues/:id/teams → teams in a league
 router.get('/:id/teams', async (req, res) => {
   const leagueId = req.params.id;
-  const season = req.query.season || new Date().getFullYear();
+  const { DEFAULT_SEASON } = require('../utils/config');
+  const season = req.query.season || DEFAULT_SEASON;
   const cacheKey = `league:${leagueId}:teams:${season}`;
   const raw = req.query.raw === 'true';
   let redisClient;
@@ -223,7 +225,7 @@ router.get('/:id/teams', async (req, res) => {
     redisClient = createClient();
     await redisClient.connect();
 
-    // Check cache first
+    // 1. Check cache first
     const cachedData = await redisClient.get(cacheKey);
     if (cachedData) {
       console.log('✅ League teams data from Redis Cache');
@@ -232,42 +234,55 @@ router.get('/:id/teams', async (req, res) => {
       return res.json(raw ? data : { response: data.response?.map(team => transformTeam(team)) || [] });
     }
 
-    // Check MongoDB after cache miss
-    console.log(`🔍 Checking MongoDB for league ${leagueId} teams...`);
-    const dbTeams = await Team.find({ 
-      'league.id': leagueId,
-      'league.season': season 
-    });
+    // 2. Check MongoDB database
+    console.log(`🔍 Checking MongoDB for teams in league ${leagueId}, season ${season}...`);
     
-    if (dbTeams && dbTeams.length > 0) {
-      console.log(`✅ Found ${dbTeams.length} teams in MongoDB, refreshing cache`);
-      
-      // Transform DB data to API format
-      const apiFormatTeams = dbTeams.map(team => ({
-        team: {
-          id: team.apiId,
-          name: team.name,
-          code: team.code,
-          country: team.country,
-          founded: team.founded,
-          national: team.national,
-          logo: team.logo
-        },
-        venue: team.venue
-      }));
-      
-      const apiFormatResponse = { response: apiFormatTeams };
-      
-      // Refresh cache with DB data (2 hours)
-      await redisClient.setEx(cacheKey, 7200, JSON.stringify(apiFormatResponse));
-      await redisClient.disconnect();
-      
-      return res.json(raw ? apiFormatResponse : { 
-        response: apiFormatTeams.map(item => transformTeam(item)) 
+    try {
+      const dbTeams = await Team.find({ 
+        'league.id': parseInt(leagueId),
+        'league.season': parseInt(season)
       });
+      
+      console.log(`📊 Database query result: Found ${dbTeams.length} teams`);
+
+      if (dbTeams && dbTeams.length > 0) {
+        console.log(`✅ Found ${dbTeams.length} teams in MongoDB, refreshing cache`);
+        
+        // Transform database data to API format for consistency
+        const transformedData = {
+          response: dbTeams.map(team => ({
+            team: {
+              id: team.apiId,
+              name: team.name,
+              code: team.code,
+              country: team.country,
+              founded: team.founded,
+              national: team.national,
+              logo: team.logo
+            },
+            venue: team.venue
+          }))
+        };
+
+        // Cache the data for future requests
+        try {
+          await redisClient.setEx(cacheKey, 1800, JSON.stringify(transformedData));
+          console.log('💾 Cached teams data from database');
+        } catch (cacheErr) {
+          console.error('Warning: failed to cache teams data', cacheErr.message);
+        }
+
+        await redisClient.disconnect();
+        return res.json(raw ? transformedData : { response: transformedData.response?.map(team => transformTeam(team)) || [] });
+      } else {
+        console.log('❌ No teams found in database, proceeding to API call');
+      }
+    } catch (dbError) {
+      console.error('❌ Database query error:', dbError.message);
+      console.log('⚠️ Falling back to API call due to database error');
     }
 
-    // Fetch from API as last resort
+    // 3. Fetch from API as last resort
     console.log(`🌐 Fetching teams for league ${leagueId} from API`);
     const apiData = await footballApi.getTeamsByLeague(leagueId, season);
     
@@ -329,7 +344,8 @@ router.get('/:id/teams', async (req, res) => {
 // GET /api/leagues/:id/standings → points table
 router.get('/:id/standings', async (req, res) => {
   const leagueId = req.params.id;
-  const season = req.query.season || new Date().getFullYear();
+  const { DEFAULT_SEASON } = require('../utils/config');
+  const season = req.query.season || DEFAULT_SEASON;
   const cacheKey = `standings:${leagueId}:${season}`;
   const raw = req.query.raw === 'true';
   let redisClient;
@@ -339,7 +355,7 @@ router.get('/:id/standings', async (req, res) => {
     redisClient = createClient();
     await redisClient.connect();
 
-    // Check cache first
+    // 1. Check cache first
     const cachedData = await redisClient.get(cacheKey);
     if (cachedData) {
       console.log('✅ Standings data from Redis Cache');
@@ -348,42 +364,66 @@ router.get('/:id/standings', async (req, res) => {
       return res.json(raw ? data : { response: data.response?.[0]?.league?.standings?.[0]?.map(standing => transformStanding(standing)) || [] });
     }
 
-    // DB CHECK after cache miss (Smart Flow)
-    console.log(`🔍 Checking MongoDB for standings (league ${leagueId}, season ${season})...`);
-    let dbRows = await Standing.find({
-      'league.id': parseInt(leagueId),
-      'league.season': parseInt(season)
-    });
+    // 2. Check MongoDB database
+    console.log(`🔍 Checking MongoDB for standings in league ${leagueId}, season ${season}...`);
+    
+    try {
+      const dbStandings = await Standing.find({ 
+        'league.id': parseInt(leagueId), 
+        'league.season': parseInt(season) 
+      }).sort({ rank: 1 });
 
-    // If no exact season match, fallback to latest available for this league
-    if (!dbRows || dbRows.length === 0) {
-      const fallback = await Standing.find({ 'league.id': parseInt(leagueId) })
-        .sort({ 'league.season': -1 })
-        .limit(20);
-      if (fallback.length > 0) {
-        console.log(`📋 Using latest available season ${fallback[0].league.season} from DB`);
-        dbRows = fallback;
+      console.log(`📊 Database query result: Found ${dbStandings.length} standings`);
+
+      if (dbStandings && dbStandings.length > 0) {
+        console.log(`✅ Found ${dbStandings.length} standings in MongoDB, refreshing cache`);
+        
+        // Transform database data to API format for consistency
+        const transformedData = {
+          response: [{
+            league: {
+              id: parseInt(leagueId),
+              name: dbStandings[0].league.name,
+              country: dbStandings[0].league.country,
+              logo: dbStandings[0].league.logo,
+              season: parseInt(season),
+              standings: [dbStandings.map(standing => ({
+                rank: standing.rank,
+                team: standing.team,
+                points: standing.points,
+                goalsDiff: standing.goalsDiff,
+                group: standing.group,
+                form: standing.form,
+                status: standing.status,
+                description: standing.description,
+                all: standing.all,
+                home: standing.home,
+                away: standing.away,
+                update: standing.updatedAt || new Date().toISOString()
+              }))]
+            }
+          }]
+        };
+
+        // Cache the data for future requests
+        try {
+          await redisClient.setEx(cacheKey, 1800, JSON.stringify(transformedData));
+          console.log('💾 Cached standings data from database');
+        } catch (cacheErr) {
+          console.error('Warning: failed to cache standings data', cacheErr.message);
+        }
+
+        await redisClient.disconnect();
+        return res.json(raw ? transformedData : { response: transformedData.response?.[0]?.league?.standings?.[0]?.map(standing => transformStanding(standing)) || [] });
+      } else {
+        console.log('❌ No standings found in database, proceeding to API call');
       }
+    } catch (dbError) {
+      console.error('❌ Database query error:', dbError.message);
+      console.log('⚠️ Falling back to API call due to database error');
     }
 
-    if (dbRows && dbRows.length > 0) {
-      console.log(`✅ Found ${dbRows.length} standings in MongoDB`);
-      // Build API-like structure so transforms remain consistent
-      const apiLike = { response: [{ league: { standings: [dbRows] } }] };
-      try {
-        await redisClient.setEx(cacheKey, 1800, JSON.stringify(apiLike));
-        console.log('💾 Standings data cached from DB');
-      } catch (cacheErr) {
-        console.error('Warning: failed to cache standings from DB', cacheErr && cacheErr.message);
-      }
-      await redisClient.disconnect();
-      return res.json(raw
-        ? apiLike
-        : { response: apiLike.response?.[0]?.league?.standings?.[0]?.map(standing => transformStanding(standing)) || [] }
-      );
-    }
-
-    // Fetch from API as last resort
+    // 3. Fetch from API as last resort
     console.log(`🌐 Fetching standings for league ${leagueId} from API`);
     const apiData = await footballApi.getStandings(leagueId, season);
     

@@ -1,5 +1,6 @@
 // utils/footballApi.js
 const axios = require('axios');
+const { DEFAULT_SEASON } = require('./config');
 
 const API_KEY = process.env.FOOTBALL_API_KEY;
 if (!API_KEY) console.warn('Warning: FOOTBALL_API_KEY not set. Requests will fail.');
@@ -64,7 +65,7 @@ async function getTeamsByLeague(leagueId, season) {
   const res = await api.get('/teams', {
     params: {
       league: leagueId,
-      season: season || new Date().getFullYear()
+  season: season || DEFAULT_SEASON
     }
   });
   return res.data;
@@ -87,7 +88,7 @@ async function getStandings(leagueId, season) {
   const res = await api.get('/standings', {
     params: {
       league: leagueId,
-      season: season || new Date().getFullYear()
+  season: season || DEFAULT_SEASON
     }
   });
   return res.data;
@@ -99,7 +100,7 @@ async function getStandings(leagueId, season) {
  */
 async function getPlayersByTeam(teamId, season) {
   const results = [];
-  const year = season || new Date().getFullYear();
+  const year = season || DEFAULT_SEASON;
   let page = 1;
   while (true) {
     const res = await api.get('/players', {
@@ -126,7 +127,7 @@ async function getPlayer(id, season) {
   const res = await api.get('/players', {
     params: {
       id: id,
-      season: season || new Date().getFullYear()
+  season: season || DEFAULT_SEASON
     }
   });
   return res.data;
@@ -140,7 +141,7 @@ async function searchPlayers(name, season) {
   const res = await api.get('/players', {
     params: {
       search: name,
-      season: season || new Date().getFullYear()
+  season: season || DEFAULT_SEASON
     }
   });
   return res.data;
@@ -154,7 +155,7 @@ async function getFixtures(leagueId, season) {
   const res = await api.get('/fixtures', {
     params: {
       league: leagueId,
-      season: season || new Date().getFullYear()
+  season: season || DEFAULT_SEASON
     }
   });
   return res.data;
@@ -221,7 +222,7 @@ async function getTeamStats(teamId, leagueId, season) {
     params: {
       team: teamId,
       league: leagueId,
-      season: season || new Date().getFullYear()
+  season: season || DEFAULT_SEASON
     }
   });
   return res.data;

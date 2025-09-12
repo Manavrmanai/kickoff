@@ -11,7 +11,8 @@ const { transformTeamStats, transformPlayerStats } = require('../utils/dataTrans
 router.get('/teams/:id/stats', async (req, res) => {
   const teamId = req.params.id;
   const leagueId = req.query.league;
-  const season = req.query.season || new Date().getFullYear();
+  const { DEFAULT_SEASON } = require('../utils/config');
+  const season = req.query.season || DEFAULT_SEASON;
   
   if (!leagueId) {
     return res.status(400).json({ error: 'League ID is required as query parameter' });
@@ -138,7 +139,8 @@ router.get('/teams/:id/stats', async (req, res) => {
 // GET /api/players/:id/stats → player statistics
 router.get('/players/:id/stats', async (req, res) => {
   const playerId = req.params.id;
-  const season = req.query.season || new Date().getFullYear();
+  const { DEFAULT_SEASON } = require('../utils/config');
+  const season = req.query.season || DEFAULT_SEASON;
   const league = req.query.league; // Add league parameter
   const cacheKey = `player:${playerId}:stats:${league || 'all'}:${season}`;
   let redisClient;
@@ -169,48 +171,7 @@ router.get('/players/:id/stats', async (req, res) => {
       }
     }
 
-    // Check MongoDB after cache miss
-    console.log(`🔍 Checking MongoDB for player ${playerId} stats (season ${season})...`);
-    let dbData = await PlayerStatistics.findOne({ 
-      'player.id': parseInt(playerId), 
-      'statistics.league.season': parseInt(season) 
-    });
-
-    if (dbData) {
-      console.log(`✅ Found player ${playerId} stats in MongoDB`);
-      
-      // Filter by league if provided
-      let filteredStats = dbData.statistics;
-      if (league) {
-        filteredStats = dbData.statistics.filter(stat => 
-          stat.league && stat.league.id === parseInt(league)
-        );
-        console.log(`🎯 Filtered to ${filteredStats.length} stats for league ${league}`);
-      }
-
-      // Create the data structure to cache and return
-      const dataToCache = {
-        ...dbData.toObject(),
-        statistics: filteredStats
-      };
-
-      try {
-        await redisClient.setEx(cacheKey, 3600, JSON.stringify(dataToCache));
-        console.log('💾 Player stats data cached from DB');
-      } catch (cacheErr) {
-        console.error('Warning: failed to cache player stats from DB', cacheErr && cacheErr.message);
-      }
-      await redisClient.disconnect();
-
-      const raw = req.query.raw === 'true';
-      if (raw) {
-        return res.json({ response: [dataToCache] });
-      } else {
-        return res.json({ response: transformPlayerStats(dataToCache) });
-      }
-    }
-
-    // Fetch from API as last resort
+    // Fetch from API
     console.log(`🌐 Fetching stats for player ${playerId} from API`);
     const apiData = await footballApi.getPlayer(playerId, season);
     
@@ -257,9 +218,22 @@ router.get('/players/:id/stats', async (req, res) => {
     // Save to MongoDB if we have data
     if (playerData.player) {
       try {
+        // Prepare data in the correct schema format
+        const playerStatsDoc = {
+          player: playerData.player,
+          statistics: playerData.statistics.map(stat => ({
+            ...stat,
+            // Ensure season is in the league object where the schema expects it
+            league: {
+              ...stat.league,
+              season: stat.league?.season || parseInt(season)
+            }
+          }))
+        };
+
         await PlayerStatistics.findOneAndUpdate(
-          { 'player.id': playerData.player.id, 'statistics.league.season': season },
-          playerData,
+          { 'player.id': playerData.player.id },  // Remove season from query condition
+          playerStatsDoc,
           { upsert: true, new: true }
         );
         console.log(`💾 Saved player ${playerId} statistics to MongoDB`);

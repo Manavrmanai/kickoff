@@ -9,7 +9,8 @@ const { transformPlayers, transformPlayer, transformPlayerStats } = require('../
 // GET /api/players/search?name=ronaldo&season=2023 → search players by name
 router.get('/search', async (req, res) => {
   const playerName = req.query.name;
-  const season = req.query.season || new Date().getFullYear();
+  const { DEFAULT_SEASON } = require('../utils/config');
+  const season = req.query.season || DEFAULT_SEASON;
   const raw = req.query.raw === 'true';
   
   if (!playerName) {
@@ -121,7 +122,8 @@ router.get('/search', async (req, res) => {
 // GET /api/players/:id → single player info
 router.get('/:id', async (req, res) => {
   const playerId = req.params.id;
-  const season = req.query.season || new Date().getFullYear();
+  const { DEFAULT_SEASON } = require('../utils/config');
+  const season = req.query.season || DEFAULT_SEASON;
   const cacheKey = `player:${playerId}:${season}`;
   let redisClient;
 

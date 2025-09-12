@@ -12,7 +12,8 @@ const { transformFixtures, transformFixture, transformFixtureStats, transformFix
 // GET /api/fixtures?league=39&season=2023 → List fixtures by league & season
 router.get('/', async (req, res) => {
   const leagueId = req.query.league;
-  const season = req.query.season || new Date().getFullYear();
+  const { DEFAULT_SEASON } = require('../utils/config');
+  const season = req.query.season || DEFAULT_SEASON;
   const raw = req.query.raw === 'true';
   
   if (!leagueId) {
